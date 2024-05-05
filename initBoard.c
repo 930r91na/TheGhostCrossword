@@ -4,12 +4,24 @@
 #include <string.h>
 #include <stdlib.h>
 #include <time.h>
+#include <pthread.h>
+#include <malloc.h>
+
 #define boardSize 11
 #define numberOfTerms 12
+#define NUM_THREADS 4
 
 // Global variables
 extern char crosswordBoard[boardSize][boardSize];
 extern termInBoard termsInBoard[numberOfTerms];
+
+// Global variable to control the thread pool
+extern pthread_t threads[NUM_THREADS];
+extern pthread_mutex_t lock;
+extern pthread_cond_t work_cond;
+extern bool keep_working;
+extern bool work_available;
+
 
 bool isTermAlreadyInBoard(struct term term) {
     for (int i = 0; i < numberOfTerms; i++) {
@@ -22,6 +34,7 @@ bool isTermAlreadyInBoard(struct term term) {
     }
     return false;
 }
+
 bool termFitsInBoard(struct term term, coordinate starts, bool isHorizontal) {
     if (starts.column < 0 || starts.row < 0) {
         return false;
@@ -38,7 +51,7 @@ bool termFitsInBoard(struct term term, coordinate starts, bool isHorizontal) {
     return true;
 }
 
-bool termCollidesWithBoardCharacters(termInBoard term){
+bool termCollidesWithBoardCharacters(termInBoard term) {
     int termLength = strlen(term.term.word);
     if (term.isHorizontal) {
         for (int i = 0; i < termLength; i++) {
@@ -58,8 +71,8 @@ bool termCollidesWithBoardCharacters(termInBoard term){
     return false;
 }
 
-pair* findIntersectionsBetweenTerms(term term1, term term2, int* numPairs) {
-    pair* intersections = NULL;
+pair *findIntersectionsBetweenTerms(term term1, term term2, int *numPairs) {
+    pair *intersections = NULL;
     *numPairs = 0;
 
     // Check if term1 or term2 is NULL
@@ -81,7 +94,8 @@ pair* findIntersectionsBetweenTerms(term term1, term term2, int* numPairs) {
 
     return intersections;
 }
-void calculateStartPosition(coordinate *starts,termInBoard* termInBoard, pair intersection) {
+
+void calculateStartPosition(coordinate *starts, termInBoard *termInBoard, pair intersection) {
     if (!termInBoard->isHorizontal) {
         starts->row = termInBoard->starts.row + intersection.second;
         starts->column = termInBoard->starts.column - intersection.first;
@@ -91,7 +105,7 @@ void calculateStartPosition(coordinate *starts,termInBoard* termInBoard, pair in
     }
 }
 
-void shuffleIntersections(int numPairs, int* indices){
+void shuffleIntersections(int numPairs, int *indices) {
     // Create an array of indices
     for (int j = 0; j < numPairs; j++) {
         indices[j] = j;
@@ -106,7 +120,7 @@ void shuffleIntersections(int numPairs, int* indices){
     }
 }
 
-void addTermToCrosswordBoard(termInBoard term){
+void addTermToCrosswordBoard(termInBoard term) {
     if (term.isHorizontal) {
         for (int l = 0; l < strlen(term.term.word); l++) {
             crosswordBoard[term.starts.row][term.starts.column + l] = term.term.word[l];
@@ -118,57 +132,84 @@ void addTermToCrosswordBoard(termInBoard term){
     }
 }
 
-void generateAndPlaceTerm() {
-    bool placed = false;
-    srand(time(NULL)); // Seed the random number generator
+bool tryToPlaceATerm() {
+    pthread_mutex_lock(&lock);
+    bool success = false;
 
-    while (!placed) {
-        int size = rand() % 6 + 4;  // Generate a random term size between 4 and 9
-        term newTerm = getRandomTerm(size);
-        if (isTermAlreadyInBoard(newTerm)) {
-            continue;
-        }
+    // Example logic for trying to place a term
+    int size = rand() % 6 + 4;  // Random term size between 4 and 9
+    term newTerm = getRandomTerm(size);
 
-        // Iterate through all terms to find intersections with non-NULL terms
-        for (int i = numberOfTerms; i >= 0 && !placed; i--) {
-            if (termsInBoard[i].term.word != NULL) {  // Ensure the term is not NULL
-                int numPairs;
-                pair* intersections = findIntersectionsBetweenTerms(newTerm, termsInBoard[i].term, &numPairs);
-                int* indices = malloc(numPairs * sizeof(int));
+    if (isTermAlreadyInBoard(newTerm)) {
+        pthread_mutex_unlock(&lock);
+        return false;
+    }
 
-                // Shuffle the intersections
-                shuffleIntersections(numPairs, indices);
+    for (int i = numberOfTerms; i >= 0 && !success; i--){
+        if (termsInBoard[i].term.word != NULL) {  // Ensure the term is not NULL
+            int numPairs;
+            pair* intersections = findIntersectionsBetweenTerms(newTerm, termsInBoard[i].term, &numPairs);
+            if (numPairs <= 0) {
+                continue;
+            }
 
-                if (numPairs > 0) {
-                    for (int j = 0; j < numPairs; j++) {
-                        pair intersection = intersections[indices[j]];
-                        coordinate starts;
-                        bool isHorizontal = !termsInBoard[i].isHorizontal;
+            int* indices = malloc(numPairs * sizeof(int));
+            if (!indices) {  // Memory allocation failure handling
+                perror("Failed to allocate memory for indices");
+                exit(EXIT_FAILURE);
+            }
+            shuffleIntersections(numPairs, indices);
 
-                        calculateStartPosition(&starts, &termsInBoard[i], intersection);
+            for (int j = 0; j < numPairs; j++) {
+                pair intersection = intersections[indices[j]];
+                coordinate starts;
+                bool isHorizontal = !termsInBoard[i].isHorizontal;
+                calculateStartPosition(&starts, &termsInBoard[i], intersection);
 
-                        if (termFitsInBoard(newTerm, starts, isHorizontal)) {
-                            termInBoard newTermInBoard = {newTerm, isHorizontal, starts, false};
-
-                            if (!termCollidesWithBoardCharacters(newTermInBoard)) {
-                                // Find an empty spot to place the new term
-                                for (int k = 0; k < numberOfTerms; k++) {
-                                    if (termsInBoard[k].term.word == NULL) {
-                                        newTermInBoard.index = k;
-                                        termsInBoard[k] = newTermInBoard;
-                                        addTermToCrosswordBoard(newTermInBoard);
-                                        placed = true;
-                                        break;
-                                    }
-                                }
-                                if (placed) break;
-                            }
+                if (termFitsInBoard(newTerm, starts, isHorizontal) && !termCollidesWithBoardCharacters((termInBoard){newTerm, isHorizontal, starts, false})) {
+                    for (int k = 1; k < numberOfTerms; k++) {
+                        if (termsInBoard[k].term.word != NULL) {
+                            continue;
                         }
+                        termInBoard newTermInBoard = {newTerm, isHorizontal, starts, false};
+                        termsInBoard[k] = newTermInBoard;
+                        addTermToCrosswordBoard(newTermInBoard);
+                        success = true;
+                        break;
                     }
-                    free(intersections);
                 }
             }
+            free(intersections);
         }
     }
+
+    pthread_mutex_unlock(&lock);
+    return success;
 }
+
+
+void *worker_function(void *arg) {
+    while (true) {
+        pthread_mutex_lock(&lock);
+        while (!work_available && keep_working) {
+            pthread_cond_wait(&work_cond, &lock);
+        }
+        if (!keep_working) {  // Check if it's time to shut down the pool
+            pthread_mutex_unlock(&lock);
+            break;
+        }
+        work_available = false;  // Reset work availability
+        pthread_mutex_unlock(&lock);
+
+        // Existing logic to place a term
+        if (tryToPlaceATerm()) {
+            pthread_mutex_lock(&lock);
+            work_available = true;
+            pthread_cond_broadcast(&work_cond);  // Signal other threads that there's more work
+            pthread_mutex_unlock(&lock);
+        }
+    }
+    return NULL;
+}
+
 

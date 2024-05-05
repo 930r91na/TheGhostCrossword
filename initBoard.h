@@ -39,6 +39,6 @@ void shuffleIntersections(int numPairs, int* indices);
 
 void addTermToCrosswordBoard(termInBoard term);
 
-void generateAndPlaceTerm();
+void* worker_function(void* arg);
 
 #endif //INITBOARD_H

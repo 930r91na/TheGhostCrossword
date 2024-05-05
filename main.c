@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdbool.h>
+#include <time.h>
+#include <stdlib.h>
 #include <pthread.h>
 #include "fileUtils.h"
 #include "initBoard.h"
@@ -11,6 +13,14 @@
 // Global variables
 char crosswordBoard[boardSize][boardSize];
 termInBoard termsInBoard[numberOfTerms];
+
+// Init thread pool
+#define NUM_THREADS 4
+pthread_t threads[NUM_THREADS];
+pthread_mutex_t lock;
+pthread_cond_t work_cond;
+bool keep_working = true;
+bool work_available = false;
 
 bool checkAllTermsInBoard() {
     int t = 0;
@@ -25,7 +35,33 @@ bool checkAllTermsInBoard() {
     }
     return false;
 }
+
+void start_thread_pool() {
+    pthread_mutex_init(&lock, NULL);
+    pthread_cond_init(&work_cond, NULL);
+
+    for (int i = 0; i < NUM_THREADS; i++) {
+        pthread_create(&threads[i], NULL, worker_function, NULL);
+    }
+}
+
+void stop_thread_pool() {
+    pthread_mutex_lock(&lock);
+    keep_working = false;
+    pthread_cond_broadcast(&work_cond);  // Wake up all threads to let them exit
+    pthread_mutex_unlock(&lock);
+
+    for (int i = 0; i < NUM_THREADS; i++) {
+        pthread_join(threads[i], NULL);
+    }
+
+    pthread_mutex_destroy(&lock);
+    pthread_cond_destroy(&work_cond);
+}
+
+
 void initializeTermsInBoard() {
+    srand(time(NULL));
     // Init the first word in the middle
     termInBoard firstTermInBoard;
     firstTermInBoard.term = getRandomTerm(9);
@@ -38,12 +74,17 @@ void initializeTermsInBoard() {
     termsInBoard[0] = firstTermInBoard;
     addTermToCrosswordBoard(firstTermInBoard);
 
-    pthread_t threads[numberOfTerms];
+    start_thread_pool();  // Start the thread pool
 
-
+    // Signal work until all terms are placed
     while (!checkAllTermsInBoard()) {
-        generateAndPlaceTerm(NULL);
+        pthread_mutex_lock(&lock);
+        work_available = true;
+        pthread_cond_broadcast(&work_cond);  // Signal to threads that there is work
+        pthread_mutex_unlock(&lock);
     }
+
+    stop_thread_pool();  // Stop the thread pool when done
 }
 
 void printAnsweredBoard() {
