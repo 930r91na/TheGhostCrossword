@@ -133,13 +133,13 @@ void addTermToCrosswordBoard(termInBoard term) {
 }
 
 bool tryToPlaceATerm() {
+    // TODO: Ad concurrency set to enhance performance
     pthread_mutex_lock(&lock);
-    bool success = false;
-
-    // Example logic for trying to place a term
+    // Threads simultaneously generate a term
     int size = rand() % 6 + 4;  // Random term size between 4 and 9
     term newTerm = getRandomTerm(size);
 
+    bool success = false;
     if (isTermAlreadyInBoard(newTerm)) {
         pthread_mutex_unlock(&lock);
         return false;

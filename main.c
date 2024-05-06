@@ -4,6 +4,8 @@
 #include <time.h>
 #include <stdlib.h>
 #include <pthread.h>
+#include <sys/wait.h>
+#include <unistd.h>
 #include "fileUtils.h"
 #include "initBoard.h"
 
@@ -61,6 +63,13 @@ void stop_thread_pool() {
 
 
 void initializeTermsInBoard() {
+    // Initialize empty board with '*'
+    for (int i = 0; i < boardSize; i++) {
+        for (int j = 0; j < boardSize; j++) {
+            crosswordBoard[i][j] = '*';
+        }
+    }
+
     srand(time(NULL));
     // Init the first word in the middle
     termInBoard firstTermInBoard;
@@ -139,19 +148,45 @@ void userAnswer() {
     // Check if the answer is correct
 }
 
+void giveUserInstructions() {
+    char buffer;
+    printf("Welcome to the Crossword Game!\n");
+    printf("Rules: Complete the board with correct terms.\n");
+    printf("Press 'y' when ready to start, or 'e' to exit: ");
+    scanf(" %c", &buffer);
+    while (buffer != 'y' && buffer != 'e') {
+        printf("Invalid input. Please press 'y' to start or 'e' to exit: ");
+        scanf(" %c", &buffer);
+    }
+    if (buffer == 'e') {
+        printf("Exiting game as requested by user.\n");
+        // Kill the main process
+        kill(getppid(), SIGKILL);
+    }
+    printf("User is ready. Waiting for game initialization...\n");
+    exit(0);
+}
+
 int main(void) {
-    // Initialize empty board with '*'
-    for (int i = 0; i < boardSize; i++) {
-        for (int j = 0; j < boardSize; j++) {
-            crosswordBoard[i][j] = '*';
-        }
+
+    pid_t pidGivesInstructions;
+    int processStatus;
+
+    pidGivesInstructions = fork();
+    if (pidGivesInstructions == 0) {
+        giveUserInstructions();
+        exit(0);
     }
 
-    // Test getRandomTerm
     initializeTermsInBoard();
 
-    printAnsweredBoard();
+    waitpid(pidGivesInstructions, &processStatus, 0);
+    if (!WIFEXITED(processStatus)) {
+        printf("Error: User instructions did not complete successfully.\n");
+        return -1;
+    }
 
+    printAnsweredBoard();
 
     return 0;
 }
