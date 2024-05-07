@@ -7,10 +7,13 @@
 #include "initBoard.h"
 #include "parameters.h"
 
+
+bool isdigit(char i);
+
 void giveUserInstructions() {
     char buffer;
-    printf("Welcome to the Crossword Game!\n");
-    printf("Rules: Complete the board with correct terms.\n");
+    printf(BLU "Welcome to the Crossword Game!\n");
+    printf("Rules: Complete the board with correct terms" RESET "\n");
     printf("Press 'y' when ready to start, or 'e' to exit: ");
     scanf(" %c", &buffer);
     while (buffer != 'y' && buffer != 'e') {
@@ -59,21 +62,38 @@ bool checkAllTermsInBoard() {
     return false;
 }
 
+int max(int a, int b){
+    return a > b ? a : b;
+}
+
 void printTermsHints() {
     printf("Hints:\n");
-    // Printing all terms in board divided in horizontal and vertical
-    printf("HORIZONTAL: \n");
+    // Storing all terms in arrays
+    char horizontalTerms[NUMBER_OF_TERMS][50];
+    char verticalTerms[NUMBER_OF_TERMS][50];
+    int hCount = 0, vCount = 0;
+
     for (int i = 0; i < NUMBER_OF_TERMS; i++) {
         if (termsInBoard[i].isHorizontal && !termsInBoard[i].isKnown) {
-            printf("Term %d: %s\n", termsInBoard[i].index, termsInBoard[i].term.description);
+            sprintf(horizontalTerms[hCount++], "Term %d: %s", termsInBoard[i].index, termsInBoard[i].term.description);
+        } else if (!termsInBoard[i].isHorizontal && !termsInBoard[i].isKnown) {
+            sprintf(verticalTerms[vCount++], "Term %d: %s", termsInBoard[i].index, termsInBoard[i].term.description);
         }
     }
 
-    printf("VERTICAL: \n");
-    for (int i = 0; i < NUMBER_OF_TERMS; i++) {
-        if (!termsInBoard[i].isHorizontal && !termsInBoard[i].isKnown) {
-            printf("Term %d: %s\n", termsInBoard[i].index, termsInBoard[i].term.description);
+    // Printing terms in columns
+    printf("VERTICAL \t\t\t\t\t\t\t\t\tHORIZONTAL\n");
+    for (int i = 0; i < max(hCount, vCount); i++) {
+        if (i < vCount) {
+            printf("%-50s", verticalTerms[i]);
+        } else {
+            printf("%-s", "");
         }
+
+        if (i < hCount) {
+            printf("%30s", horizontalTerms[i]);
+        }
+        printf("\n");
     }
 }
 
@@ -217,8 +237,12 @@ void converterToUpperCase(char *str) {
 bool processUserAnswer() {
     int termNumber;
     printf("Enter your answer: ");
-    char answer[10];
-    scanf("%s", answer);
+    char answer[11];
+    if (reInitBoard){
+        reInitBoard = false;
+        return false;
+    }
+    scanf("%10s", answer);
 
     converterToUpperCase(answer);
 
@@ -236,7 +260,7 @@ bool processUserAnswer() {
 
 void printFormattedBoard(char displayBoard[BOARD_SIZE][BOARD_SIZE][20]) {
     // Print the top border of the board
-    printf("+");
+    printf("\n+");
     for (int j = 0; j < BOARD_SIZE; j++) {
         printf("-------+");
     }
@@ -248,7 +272,16 @@ void printFormattedBoard(char displayBoard[BOARD_SIZE][BOARD_SIZE][20]) {
         printf("|");
         for (int j = 0; j < BOARD_SIZE; j++) {
             // Ensure each cell has a uniform width
-            printf(" %-5s |", displayBoard[i][j]);
+            if (strcmp(displayBoard[i][j], "-") == 0) {
+                // If the string is "-", print in white
+                printf(WHT " %-5s " RESET "|", displayBoard[i][j]);
+            } else if (isdigit(displayBoard[i][j][0])) {
+                // If the first character is a digit, print in red
+                printf(RED " %-5s " RESET "|", displayBoard[i][j]);
+            } else {
+                // If the first character is a letter, print in green
+                printf(GRN " %-5s " RESET "|", displayBoard[i][j]);
+            }
         }
         printf("\n");
 
@@ -259,6 +292,9 @@ void printFormattedBoard(char displayBoard[BOARD_SIZE][BOARD_SIZE][20]) {
         }
         printf("\n");
     }
-    // TODO: Add colors to the board
+}
+
+bool isdigit(char i) {
+    return i >= '0' && i <= '9';
 }
 

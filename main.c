@@ -42,6 +42,8 @@ pthread_t winConditionTread;
 pthread_t clockThread;
 int clockTime = 0;
 
+bool reInitBoard;
+
 void initializeTermsInBoard() {
     // Initialize empty board with '*'
     for (int i = 0; i < BOARD_SIZE; i++) {
@@ -114,20 +116,20 @@ void initCrosswordBoard() {
     printFormattedBoard(displayBoard);
 }
 
+
 void termChangeHandler(int signal) {
     if (termToAppear.term.word != NULL) {
         printf("TicToc TicToc! Word %d replaced!\n", termToReplaceIndex);
         printf("%s was replaced by %s\n", termsInBoard[termToReplaceIndex].term.word, termToAppear.term.word);
         printf("New descriotioon is %s\n", termToAppear.term.description);
         termsInBoard[termToReplaceIndex] = termToAppear;
-        initCrosswordBoard();
-        printTermsHints();
-
         termToAppear.term.word = NULL;
         clockTime = 0;
     } else {
         printf("Ready to replace word was not ready :(!\n");
     }
+
+    reInitBoard = true;
 }
 
 _Noreturn void *gameClock(void *arg) {
@@ -141,6 +143,7 @@ _Noreturn void *gameClock(void *arg) {
         }
     }
 }
+
 void *checkWinCondition(void*args){
     int knownWords = 0;
     while (true) {
@@ -158,8 +161,6 @@ void *checkWinCondition(void*args){
         knownWords = 0;
     }
 }
-
-
 
 int main(void) {
     srand(time(NULL));

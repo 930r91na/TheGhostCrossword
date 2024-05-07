@@ -15,6 +15,7 @@ extern int historyOfWordsIndex;
 extern termInBoard termToAppear;
 extern int termToReplaceIndex;
 extern int clockTime;
+extern bool reInitBoard;
 
 void giveUserInstructions();
 
