@@ -1,19 +1,21 @@
-#include "fileUtils.h"
-#include "initBoard.h"
 #include <stdbool.h>
 #include <string.h>
 #include <stdlib.h>
-#include <time.h>
 #include <pthread.h>
 #include <malloc.h>
 
-#define boardSize 11
-#define numberOfTerms 12
-#define NUM_THREADS 4
+#include "fileUtils.h"
+#include "initBoard.h"
+#include "parameters.h"
 
+// TODO: Make boardsize dynamic
+// TODO: Make the generation between horizontal and vertical terms distributed equally
+// TODO: Make the word check for space between words
 // Global variables
-extern char crosswordBoard[boardSize][boardSize];
-extern termInBoard termsInBoard[numberOfTerms];
+extern char crosswordBoardWithAnswers[BOARD_SIZE][BOARD_SIZE];
+extern termInBoard termsInBoard[NUMBER_OF_TERMS];
+extern char **historyOfWords;
+extern int historyOfWordsIndex;
 
 // Global variable to control the thread pool
 extern pthread_t threads[NUM_THREADS];
@@ -22,9 +24,8 @@ extern pthread_cond_t work_cond;
 extern bool keep_working;
 extern bool work_available;
 
-
 bool isTermAlreadyInBoard(struct term term) {
-    for (int i = 0; i < numberOfTerms; i++) {
+    for (int i = 0; i < NUMBER_OF_TERMS; i++) {
         if (termsInBoard[i].term.word == NULL) {
             continue;
         }
@@ -40,11 +41,11 @@ bool termFitsInBoard(struct term term, coordinate starts, bool isHorizontal) {
         return false;
     }
     if (isHorizontal) {
-        if (starts.column + strlen(term.word) >= boardSize) {
+        if (starts.column + strlen(term.word) >= BOARD_SIZE) {
             return false;
         }
     } else {
-        if (starts.row + strlen(term.word) >= boardSize) {
+        if (starts.row + strlen(term.word) >= BOARD_SIZE) {
             return false;
         }
     }
@@ -55,14 +56,14 @@ bool termCollidesWithBoardCharacters(termInBoard term) {
     int termLength = strlen(term.term.word);
     if (term.isHorizontal) {
         for (int i = 0; i < termLength; i++) {
-            char boardChar = crosswordBoard[term.starts.row][term.starts.column + i];
+            char boardChar = crosswordBoardWithAnswers[term.starts.row][term.starts.column + i];
             if (boardChar != '*' && boardChar != term.term.word[i]) {
                 return true;
             }
         }
     } else {
         for (int i = 0; i < termLength; i++) {
-            char boardChar = crosswordBoard[term.starts.row + i][term.starts.column];
+            char boardChar = crosswordBoardWithAnswers[term.starts.row + i][term.starts.column];
             if (boardChar != '*' && boardChar != term.term.word[i]) {
                 return true;
             }
@@ -123,29 +124,33 @@ void shuffleIntersections(int numPairs, int *indices) {
 void addTermToCrosswordBoard(termInBoard term) {
     if (term.isHorizontal) {
         for (int l = 0; l < strlen(term.term.word); l++) {
-            crosswordBoard[term.starts.row][term.starts.column + l] = term.term.word[l];
+            crosswordBoardWithAnswers[term.starts.row][term.starts.column + l] = term.term.word[l];
         }
     } else {
         for (int l = 0; l < strlen(term.term.word); l++) {
-            crosswordBoard[term.starts.row + l][term.starts.column] = term.term.word[l];
+            crosswordBoardWithAnswers[term.starts.row + l][term.starts.column] = term.term.word[l];
         }
     }
 }
+_Thread_local term newTerm;
 
+// Main function to place a term in the board
 bool tryToPlaceATerm() {
-    // TODO: Ad concurrency set to enhance performance
-    pthread_mutex_lock(&lock);
+    // TODO: Add concurrency set to enhance performance
     // Threads simultaneously generate a term
     int size = rand() % 6 + 4;  // Random term size between 4 and 9
-    term newTerm = getRandomTerm(size);
+     newTerm = getRandomTerm(size);
 
+    pthread_mutex_lock(&lock);
     bool success = false;
+
     if (isTermAlreadyInBoard(newTerm)) {
         pthread_mutex_unlock(&lock);
         return false;
     }
 
-    for (int i = numberOfTerms; i >= 0 && !success; i--){
+    // Check if the term works in the board
+    for (int i = NUMBER_OF_TERMS; i >= 0 && !success; i--){
         if (termsInBoard[i].term.word != NULL) {  // Ensure the term is not NULL
             int numPairs;
             pair* intersections = findIntersectionsBetweenTerms(newTerm, termsInBoard[i].term, &numPairs);
@@ -167,19 +172,22 @@ bool tryToPlaceATerm() {
                 calculateStartPosition(&starts, &termsInBoard[i], intersection);
 
                 if (termFitsInBoard(newTerm, starts, isHorizontal) && !termCollidesWithBoardCharacters((termInBoard){newTerm, isHorizontal, starts, false})) {
-                    for (int k = 1; k < numberOfTerms; k++) {
+                    for (int k = 1; k < NUMBER_OF_TERMS; k++) {
                         if (termsInBoard[k].term.word != NULL) {
                             continue;
                         }
-                        termInBoard newTermInBoard = {newTerm, isHorizontal, starts, false};
+                        termInBoard newTermInBoard = {newTerm, isHorizontal, starts, false, k, intersection.first};
                         termsInBoard[k] = newTermInBoard;
                         addTermToCrosswordBoard(newTermInBoard);
+                        // TODO: Fix memory allocation of historyOfWords
+                        // historyOfWords[historyOfWordsIndex ++] = newTerm.word;
                         success = true;
                         break;
                     }
                 }
             }
             free(intersections);
+            free(indices);
         }
     }
 
@@ -190,22 +198,27 @@ bool tryToPlaceATerm() {
 
 void *worker_function(void *arg) {
     while (true) {
-        pthread_mutex_lock(&lock);
+        pthread_mutex_lock(&lock); // Lock the mutex (necessary for condition variable)
+        // Wait for work to be available with condition variable
         while (!work_available && keep_working) {
             pthread_cond_wait(&work_cond, &lock);
         }
-        if (!keep_working) {  // Check if it's time to shut down the pool
+
+        // Check if it's time to shut down the pool
+        if (!keep_working) {
             pthread_mutex_unlock(&lock);
             break;
         }
-        work_available = false;  // Reset work availability
+
+        // Reset work availability
+        work_available = false;
         pthread_mutex_unlock(&lock);
 
         // Existing logic to place a term
         if (tryToPlaceATerm()) {
             pthread_mutex_lock(&lock);
             work_available = true;
-            pthread_cond_broadcast(&work_cond);  // Signal other threads that there's more work
+            pthread_cond_broadcast(&work_cond);  // Signal other threads that there's more work - equivalent to pthread_cond_signal
             pthread_mutex_unlock(&lock);
         }
     }

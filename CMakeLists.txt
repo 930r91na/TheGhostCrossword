@@ -7,4 +7,10 @@ add_executable(TheGhostCrossword main.c
         fileUtils.c
         fileUtils.h
         initBoard.c
-        initBoard.h)
+        initBoard.h
+        threadsUtils.c
+        threadsUtils.h
+        parameters.h
+        parameters.h
+        gameLogicUtils.c
+        gameLogicUtils.h)

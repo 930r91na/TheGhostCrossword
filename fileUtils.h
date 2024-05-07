@@ -2,6 +2,10 @@
 #ifndef THEGHOSTCROSSWORD_FILEUTILS_H
 #define THEGHOSTCROSSWORD_FILEUTILS_H
 
+#include <pthread.h>
+
+extern pthread_mutex_t getRandomTerm_lock;
+
 typedef struct term{
     char* word;
     char* description;

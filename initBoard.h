@@ -2,8 +2,9 @@
 #define INITBOARD_H
 
 #include <stdbool.h>
-#include "fileUtils.h"
 
+#include "fileUtils.h"
+#include "parameters.h"
 
 typedef struct {
     int first;
@@ -21,6 +22,7 @@ typedef struct {
     coordinate starts;
     bool isKnown;
     int index;
+    int intersection;
 } termInBoard;
 
 // Function prototypes

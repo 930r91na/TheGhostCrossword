@@ -1,3 +1,7 @@
+// Georgina Zeron Cabrera 174592
+// Last modification: 06-05-2024
+// Crossword game using threads
+// V 1.0.0
 #include <stdio.h>
 #include <string.h>
 #include <stdbool.h>
@@ -6,71 +10,46 @@
 #include <pthread.h>
 #include <sys/wait.h>
 #include <unistd.h>
+
+#include "parameters.h"
 #include "fileUtils.h"
 #include "initBoard.h"
-
-#define boardSize 11
-#define numberOfTerms 12
+#include "threadsUtils.h"
+#include "gameLogicUtils.h"
 
 // Global variables
-char crosswordBoard[boardSize][boardSize];
-termInBoard termsInBoard[numberOfTerms];
+char crosswordBoardWithAnswers[BOARD_SIZE][BOARD_SIZE];
+termInBoard termsInBoard[NUMBER_OF_TERMS];
+termInBoard termToAppear;
+char **historyOfWords;
+int historyOfWordsIndex = 0;
 
 // Init thread pool
-#define NUM_THREADS 4
 pthread_t threads[NUM_THREADS];
 pthread_mutex_t lock;
 pthread_cond_t work_cond;
+pthread_mutex_t getRandomTerm_lock;
 bool keep_working = true;
 bool work_available = false;
 
-bool checkAllTermsInBoard() {
-    int t = 0;
-    for (int i = 0; i < numberOfTerms; i++) {
-        if (termsInBoard[i].term.word != NULL) {
-            t++;
-        }
-    }
+// Threads to get termToAppear
+pthread_t termToAppearThread;
 
-    if (t == numberOfTerms) {
-        return true;
-    }
-    return false;
-}
+// Clock
+pthread_t clockThread;
+int clockTime = 0;
 
-void start_thread_pool() {
-    pthread_mutex_init(&lock, NULL);
-    pthread_cond_init(&work_cond, NULL);
 
-    for (int i = 0; i < NUM_THREADS; i++) {
-        pthread_create(&threads[i], NULL, worker_function, NULL);
-    }
-}
-
-void stop_thread_pool() {
-    pthread_mutex_lock(&lock);
-    keep_working = false;
-    pthread_cond_broadcast(&work_cond);  // Wake up all threads to let them exit
-    pthread_mutex_unlock(&lock);
-
-    for (int i = 0; i < NUM_THREADS; i++) {
-        pthread_join(threads[i], NULL);
-    }
-
-    pthread_mutex_destroy(&lock);
-    pthread_cond_destroy(&work_cond);
-}
-
+void findAllIntersections(pair **ptr, int *pInt, termInBoard param);
 
 void initializeTermsInBoard() {
     // Initialize empty board with '*'
-    for (int i = 0; i < boardSize; i++) {
-        for (int j = 0; j < boardSize; j++) {
-            crosswordBoard[i][j] = '*';
+    for (int i = 0; i < BOARD_SIZE; i++) {
+        for (int j = 0; j < BOARD_SIZE; j++) {
+            crosswordBoardWithAnswers[i][j] = '*';
         }
     }
 
-    srand(time(NULL));
     // Init the first word in the middle
     termInBoard firstTermInBoard;
     firstTermInBoard.term = getRandomTerm(9);
@@ -96,84 +75,78 @@ void initializeTermsInBoard() {
     stop_thread_pool();  // Stop the thread pool when done
 }
 
-void printAnsweredBoard() {
-    char crosswordBoardAnswered[boardSize][boardSize];
+void termChangeHandler(int signal) {
+    printf("Signal received: %d\n", signal);
+    // Get random term index between 0 and 11
+    // TODO: Change this to get
+    int indexTermToReplace = rand() % 12;
+    while (termsInBoard[indexTermToReplace].isKnown) {
+        indexTermToReplace = rand() % 12;
+    }
 
-    // Initialize the board with '*'
-    for (int i = 0; i < boardSize; i++) {
-        for (int j = 0; j < boardSize; j++) {
-            crosswordBoardAnswered[i][j] = '*';
+    printf("Term to replace: %d\n", indexTermToReplace);
+    //replaceTerm(termsInBoard[indexTermToReplace]);
+}
+
+_Noreturn void *gameClock(void *arg) {
+    while (true) {
+        sleep(1);
+        clockTime++;
+
+        if (clockTime % WORD_DISAPPEAR_TIME == 0) {
+            printf("TicToc TicToc in 15 seconds! A word will be replaced.\n");
+            alarm(15);
+        }
+    }
+}
+
+void initCrosswordBoard() {
+    char displayBoard[BOARD_SIZE][BOARD_SIZE][20];
+
+    // Initialize the display board with '-'
+    for (int i = 0; i < BOARD_SIZE; i++) {
+        for (int j = 0; j < BOARD_SIZE; j++) {
+            strcpy(displayBoard[i][j], "-");
         }
     }
 
-    // Fill the board with the known terms
-    for (int i = 0; i < numberOfTerms; i++) {
-        coordinate starts = termsInBoard[i].starts;
-        if (termsInBoard[i].isHorizontal) {
-            for (int j = 0; j < strlen(termsInBoard[i].term.word); j++) {
-                crosswordBoardAnswered[starts.row][starts.column + j] = termsInBoard[i].term.word[j];
+    // Populate the board with terms
+    for (int t = 0; t < NUMBER_OF_TERMS; t++) {
+        termInBoard current = termsInBoard[t];
+        int len = strlen(current.term.word);
+
+        for (int l = 0; l < len; l++) {
+            int x = current.starts.row + (current.isHorizontal ? 0 : l);
+            int y = current.starts.column + (current.isHorizontal ? l : 0);
+
+            if (current.isKnown) {
+                char letter[2] = {current.term.word[l], '\0'};
+                strcpy(displayBoard[x][y], letter);
+            } else {
+                if (strcmp(displayBoard[x][y], "-") == 0) {
+                    // If the cell is initially empty, add the index
+                    sprintf(displayBoard[x][y], "%d", current.index);
+                } else {
+                    // If not, append the new index, indicating an intersection
+                    char buffer[20];
+                    sprintf(buffer, "%s-%d", displayBoard[x][y], current.index);
+                    strcpy(displayBoard[x][y], buffer);
+                }
             }
-        } else {
-            for (int j = 0; j < strlen(termsInBoard[i].term.word); j++) {
-                crosswordBoardAnswered[starts.row + j][starts.column] = termsInBoard[i].term.word[j];
-            }
         }
     }
 
-    // Print the board
-    for (int i = 0; i < boardSize; i++) {
-        for (int j = 0; j < boardSize; j++) {
-            printf("%c", crosswordBoardAnswered[i][j]);
-        }
-        printf("\n");
-    }
-}
-
-void printTermDescription(termInBoard termInBoard) {
-    printf("Term %d: %s\n", termInBoard.index, termInBoard.term.description);
-}
-
-void printTermsHints() {
-    // TODO: Print all terms hints (using threads)
-}
-
-void userAnswer() {
-    int termNumber;
-    printf("Enter the term number to answer: ");
-    scanf("%d", &termNumber);
-    printf("Enter the answer: ");
-    char answer[100];
-    scanf("%s", answer);
-
-    // Check if the answer is correct
-}
-
-void giveUserInstructions() {
-    char buffer;
-    printf("Welcome to the Crossword Game!\n");
-    printf("Rules: Complete the board with correct terms.\n");
-    printf("Press 'y' when ready to start, or 'e' to exit: ");
-    scanf(" %c", &buffer);
-    while (buffer != 'y' && buffer != 'e') {
-        printf("Invalid input. Please press 'y' to start or 'e' to exit: ");
-        scanf(" %c", &buffer);
-    }
-    if (buffer == 'e') {
-        printf("Exiting game as requested by user.\n");
-        // Kill the main process
-        kill(getppid(), SIGKILL);
-    }
-    printf("User is ready. Waiting for game initialization...\n");
-    exit(0);
+    printFormattedBoard(displayBoard);
 }
 
 int main(void) {
+    srand(time(NULL));
+    signal(SIGALRM, termChangeHandler);
 
     pid_t pidGivesInstructions;
     int processStatus;
 
-    pidGivesInstructions = fork();
-    if (pidGivesInstructions == 0) {
+    if ((pidGivesInstructions = fork()) == 0) {
         giveUserInstructions();
         exit(0);
     }
@@ -188,15 +161,15 @@ int main(void) {
 
     printAnsweredBoard();
 
+    // Init game clock
+    pthread_create(&clockThread, NULL, gameClock, NULL);
+    // Main Game loop
+    while (true) {
+        initCrosswordBoard();
+        printTermsHints();
+
+        processUserAnswer();
+    }
+
     return 0;
 }
-
-
-
-
-/*
- term randomTerm = getRandomTerm(9);
-    printf("Random term: %s\n", randomTerm.word);
-    printf("Description: %s\n", randomTerm.description);
-
- * */

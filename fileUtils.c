@@ -4,7 +4,10 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <stdlib.h>
-#include <time.h>
+#include <pthread.h>
+#include <sys/time.h>
+
+_Thread_local unsigned int seed; // This is no enough because the same thread can be scheduled
 
 int countLines(int fd) {
     int lines = 0;
@@ -52,6 +55,7 @@ int getTermFromLine(int fd, int line_number, term* t) {
 }
 
 term getRandomTerm(int size) {
+    pthread_mutex_lock(&getRandomTerm_lock);
     term randomTerm;
 
     // Construct the file name
@@ -68,9 +72,13 @@ term getRandomTerm(int size) {
     // Count the number of lines in the file
     int numLines = countLines(fd);
 
-    // Generate a random line number
-    srand(time(NULL));
-    int randomLine = (rand() % (numLines - 1)) + 2;  // Generate a random number between 2 and numLines
+    // Generate a random line number with micros as seed
+    struct timeval time;
+    gettimeofday(&time, NULL);
+    long micros = (unsigned long long) time.tv_sec * 1000000 + time.tv_usec;
+    seed = micros;
+    int randomLine = (rand_r(&seed) % (numLines - 1)) + 2;  // Generate a random number between 2 and numLines
+
 
     // Get the term at the random line number
     if (getTermFromLine(fd, randomLine, &randomTerm) == -1) {
@@ -79,6 +87,7 @@ term getRandomTerm(int size) {
 
     // Close the file
     close(fd);
+    pthread_mutex_unlock(&getRandomTerm_lock);
 
     return randomTerm;
 }
