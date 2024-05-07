@@ -13,6 +13,8 @@ extern termInBoard termsInBoard[NUMBER_OF_TERMS];
 extern char **historyOfWords;
 extern int historyOfWordsIndex;
 extern termInBoard termToAppear;
+extern int termToReplaceIndex;
+extern int clockTime;
 
 void giveUserInstructions();
 
@@ -28,5 +30,6 @@ bool processUserAnswer();
 
 void printFormattedBoard(char board[BOARD_SIZE][BOARD_SIZE][20]);
 
+void *termToAppearGenerator(void *args);
 
 #endif //THEGHOSTCROSSWORD_GAMELOGICUTILS_H

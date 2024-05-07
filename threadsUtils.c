@@ -3,7 +3,6 @@
 
 void start_thread_pool() {
     pthread_mutex_init(&lock, NULL);
-    pthread_mutex_init(&getRandomTerm_lock, NULL);
     pthread_cond_init(&work_cond, NULL);
 
     for (int i = 0; i < NUM_THREADS; i++) {
@@ -23,6 +22,5 @@ void stop_thread_pool() {
     }
 
     pthread_mutex_destroy(&lock);
-    pthread_mutex_destroy(&getRandomTerm_lock);
     pthread_cond_destroy(&work_cond);
 }

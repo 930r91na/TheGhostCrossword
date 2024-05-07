@@ -132,9 +132,36 @@ void addTermToCrosswordBoard(termInBoard term) {
         }
     }
 }
-_Thread_local term newTerm;
 
+_Thread_local term newTerm;
 // Main function to place a term in the board
+
+bool  connectToOneWord(termInBoard param) {
+    // Check the placed word just connect with its intersection
+        int temp = 0;
+        for (int i = 0; i < strlen(param.term.word); ++i) {
+            if (param.isHorizontal){
+                if (crosswordBoardWithAnswers[param.starts.row][param.starts.column + i] != '*'){
+                    if (crosswordBoardWithAnswers[param.starts.row][param.starts.column + i] != param.term.word[i]){
+                        temp++;
+                    }
+                }
+            }else{
+                if (crosswordBoardWithAnswers[param.starts.row + i][param.starts.column] != '*'){
+                    if (crosswordBoardWithAnswers[param.starts.row + i][param.starts.column] != param.term.word[i]){
+                        temp++;
+                    }
+                }
+            }
+        }
+
+        if (temp > 1){
+            return false;
+        }else   {
+            return true;
+        }
+}
+
 bool tryToPlaceATerm() {
     // TODO: Add concurrency set to enhance performance
     // Threads simultaneously generate a term
@@ -166,12 +193,16 @@ bool tryToPlaceATerm() {
             shuffleIntersections(numPairs, indices);
 
             for (int j = 0; j < numPairs; j++) {
+                if (success) {
+                    break;
+                }
+
                 pair intersection = intersections[indices[j]];
                 coordinate starts;
                 bool isHorizontal = !termsInBoard[i].isHorizontal;
                 calculateStartPosition(&starts, &termsInBoard[i], intersection);
 
-                if (termFitsInBoard(newTerm, starts, isHorizontal) && !termCollidesWithBoardCharacters((termInBoard){newTerm, isHorizontal, starts, false})) {
+                if (termFitsInBoard(newTerm, starts, isHorizontal) && !termCollidesWithBoardCharacters((termInBoard){newTerm, isHorizontal, starts, false}) && connectToOneWord((termInBoard){newTerm, isHorizontal, starts, false})) {
                     for (int k = 1; k < NUMBER_OF_TERMS; k++) {
                         if (termsInBoard[k].term.word != NULL) {
                             continue;

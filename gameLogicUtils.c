@@ -6,9 +6,6 @@
 #include "gameLogicUtils.h"
 #include "initBoard.h"
 #include "parameters.h"
-#include "fileUtils.h"
-
-void searchPotentialReplacement(int left, int right, coordinate coordinate, char have);
 
 void giveUserInstructions() {
     char buffer;
@@ -67,14 +64,14 @@ void printTermsHints() {
     // Printing all terms in board divided in horizontal and vertical
     printf("HORIZONTAL: \n");
     for (int i = 0; i < NUMBER_OF_TERMS; i++) {
-        if (termsInBoard[i].isHorizontal) {
+        if (termsInBoard[i].isHorizontal && !termsInBoard[i].isKnown) {
             printf("Term %d: %s\n", termsInBoard[i].index, termsInBoard[i].term.description);
         }
     }
 
     printf("VERTICAL: \n");
     for (int i = 0; i < NUMBER_OF_TERMS; i++) {
-        if (!termsInBoard[i].isHorizontal) {
+        if (!termsInBoard[i].isHorizontal && !termsInBoard[i].isKnown) {
             printf("Term %d: %s\n", termsInBoard[i].index, termsInBoard[i].term.description);
         }
     }
@@ -101,68 +98,103 @@ void findAllIntersections(pair **intersections, int *numPairs, termInBoard param
 
 // Generate a potential termToAppear
 
-void termToAppearGenerator() {
-    termInBoard tempTermToAppear;
-    int indexTerm = rand() % NUMBER_OF_TERMS;
+void *termToAppearGenerator(void *args) {
+    while (true) {
+        // Constantly checking if a termToAppear is in need
+        if (termToAppear.term.word != NULL && !termsInBoard[termToAppear.index].isKnown) {
+            continue;
+        }
 
-    while (termsInBoard[indexTerm].isKnown) {
-        indexTerm = rand() % NUMBER_OF_TERMS;
+        termInBoard tempTermToAppear;
+        int indexTerm = rand() % (NUMBER_OF_TERMS - 1) + 1;
+
+        // Find a term that is not known and is different from the term to appear
+        while (termsInBoard[indexTerm].isKnown ||
+               (tempTermToAppear.term.word != NULL && strcmp(termsInBoard[indexTerm].term.word, tempTermToAppear.term.word) == 0)) {
+
+            indexTerm = rand() % (NUMBER_OF_TERMS - 1) + 1;
+        }
+
+        tempTermToAppear.term.word = NULL;
+        tempTermToAppear.index = indexTerm;
+        tempTermToAppear.isKnown = false;
+
+
+        termInBoard termToReplace = termsInBoard[indexTerm];
+
+        // Parameters to search a word with the common intersection
+        char toHave = termToReplace.term.word[termToReplace.intersection];
+        int spaceUpLeft = 0;
+        int spaceDownRight = 0;
+        coordinate intersectionCoordinate;
+        spaceUpLeft = termToReplace.intersection;
+        spaceDownRight = strlen(termToReplace.term.word) - termToReplace.intersection - 1;
+
+        // Get global position a coordinate
+        if (termsInBoard[indexTerm].isHorizontal) {
+            intersectionCoordinate.row = termToReplace.starts.row;
+            intersectionCoordinate.column = termToReplace.starts.column + termToReplace.intersection;
+
+            // Get extra space that may exist
+            coordinate temp = termToReplace.starts;
+            while (temp.column > 0 && crosswordBoardWithAnswers[temp.row][temp.column-- - 1] == '*') {
+                spaceUpLeft++;
+            }
+            temp = termToReplace.starts;
+            while (temp.row < BOARD_SIZE &&
+                   crosswordBoardWithAnswers[temp.row][temp.column++ + strlen(termToReplace.term.word)] == '*') {
+                spaceDownRight++;
+            }
+        } else {
+            intersectionCoordinate.row = termToReplace.starts.row + termToReplace.intersection;
+            intersectionCoordinate.column = termToReplace.starts.column;
+
+            // Get extra space that may exist
+            coordinate temp = termToReplace.starts;
+            while (temp.row > 0 && crosswordBoardWithAnswers[temp.row-- - 1][temp.column] == '*') {
+                spaceUpLeft++;
+            }
+            temp = termToReplace.starts;
+            while (temp.column < BOARD_SIZE && crosswordBoardWithAnswers[temp.row++ + strlen(termToReplace.term.word)][temp.column] == '*') {
+                spaceDownRight++;
+            }
+        }
+
+
+        coordinate start;
+        int tleft = 0;
+
+        // Search a valid candidate
+
+        do{
+            tempTermToAppear.term = searchReplacement(&start, &tleft, spaceUpLeft, spaceDownRight,
+                                                      intersectionCoordinate, toHave);
+        } while (strcmp(tempTermToAppear.term.word, termToReplace.term.word) == 0 || isTermAlreadyInBoard(tempTermToAppear.term));
+        // If no term was found, continue
+        if (tempTermToAppear.term.word == NULL) {
+            continue;
+        }
+        // Assign valid candidate to global termToAppear
+
+        tempTermToAppear.isHorizontal = termToReplace.isHorizontal;
+        // Get Intersection and starts
+        if (tempTermToAppear.isHorizontal) {
+            tempTermToAppear.starts.row = termsInBoard[indexTerm].starts.row;
+            tempTermToAppear.starts.column = start.column + 1;
+
+        } else {
+            tempTermToAppear.starts.column = termsInBoard[indexTerm].starts.column;
+            tempTermToAppear.starts.row = start.row + 1;
+        }
+        tempTermToAppear.intersection = tleft;
+        termToReplaceIndex = indexTerm;
+        if (termCollidesWithBoardCharacters(tempTermToAppear)) {
+            continue;
+        }
+        termToAppear = tempTermToAppear;
     }
-
-    tempTermToAppear.index = indexTerm;
-    tempTermToAppear.isKnown = false;
-
-    termInBoard termToReplace = termsInBoard[indexTerm];
-
-    // Add something to be in constant check
-
-    char toHave = termToReplace.term.word[termToReplace.intersection];
-    int spaceUpLeft = 0;
-    int spaceDownRight = 0;
-    coordinate intersectionCoordinate;
-
-    if (termsInBoard[indexTerm].isHorizontal) {
-        spaceUpLeft = termToReplace.intersection - 1;
-        spaceDownRight = strlen(termToReplace.term.word) - termToReplace.intersection;
-
-        // Get extra space that may exist
-        coordinate temp = termToReplace.starts;
-        while (crosswordBoardWithAnswers[temp.row][temp.column--] == '*') {
-            spaceUpLeft++;
-        }
-
-        while (crosswordBoardWithAnswers[temp.row][temp.column++ + strlen(termToReplace.term.word) - 1] == '*') {
-            spaceDownRight++;
-        }
-
-    } else {
-        spaceUpLeft = termToReplace.intersection - 1;
-        spaceDownRight = strlen(termToReplace.term.word) - termToReplace.intersection;
-
-
-        intersectionCoordinate.row = termToReplace.starts.row + termToReplace.intersection - 1;
-        intersectionCoordinate.column = termToReplace.starts.column;
-
-        // Get extra space that may exist
-        // Get extra space that may exist
-        coordinate temp = termToReplace.starts;
-        while (crosswordBoardWithAnswers[temp.row--][temp.column] == '*') {
-            spaceUpLeft++;
-        }
-
-        while (crosswordBoardWithAnswers[temp.row++ + strlen(termToReplace.term.word) - 1][temp.column] == '*') {
-            spaceDownRight++;
-        }
-    }
-
-    searchPotentialReplacement(spaceUpLeft, spaceDownRight, intersectionCoordinate, toHave);
 }
 
-void searchPotentialReplacement(int left, int right, coordinate coordinate, char have) {
-    int maxSizeOfWord = left + right + 1;
-
-
-}
 
 int answerChecker(char answer[10]) {
     // Check if the answer is correct in any of the terms
@@ -192,6 +224,7 @@ bool processUserAnswer() {
 
     if (answerChecker(answer) != -1) {
         termNumber = answerChecker(answer);
+        clockTime = 0;
         printf("Correct answer! Term %d found.\n", termNumber);
         termsInBoard[termNumber].isKnown = true;
         return true;

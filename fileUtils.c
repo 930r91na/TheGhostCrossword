@@ -7,8 +7,6 @@
 #include <pthread.h>
 #include <sys/time.h>
 
-_Thread_local unsigned int seed; // This is no enough because the same thread can be scheduled
-
 int countLines(int fd) {
     int lines = 0;
     char buffer[1024];
@@ -54,10 +52,10 @@ int getTermFromLine(int fd, int line_number, term* t) {
     return -1; // Line not found
 }
 
-term getRandomTerm(int size) {
-    pthread_mutex_lock(&getRandomTerm_lock);
-    term randomTerm;
+_Thread_local unsigned int seed;
+_Thread_local term randomTerm;
 
+term getRandomTerm(int size) {
     // Construct the file name
     char fileName[50];
     sprintf(fileName, "../PoolOfWords/wordsSize%d", size);
@@ -87,7 +85,70 @@ term getRandomTerm(int size) {
 
     // Close the file
     close(fd);
-    pthread_mutex_unlock(&getRandomTerm_lock);
-
     return randomTerm;
+}
+
+term searchReplacement(coordinate * start, int * intersectionIndex, int left, int right, coordinate coordinate, char have) {
+    int maxSizeOfWord = left + right + 1;
+    term t;
+
+    // Create and shuffle a list of word sizes
+    int sizes[6] = {4, 5, 6, 7, 8, 9};
+    for (int i = 0; i < 6; i++) {
+        int j = rand() % 6;
+        int temp = sizes[i];
+        sizes[i] = sizes[j];
+        sizes[j] = temp;
+    }
+
+    for (int i = 0; i < 6; i++) {
+        if (sizes[i] > maxSizeOfWord) {
+            continue;
+        }
+
+        // Open file with words of size i
+        char fileName[50];
+        sprintf(fileName, "../PoolOfWords/wordsSize%d", sizes[i]);
+
+        int fd = open(fileName, O_RDONLY);
+        if (fd == -1) {
+            perror("Error opening file");
+            return t;
+        }
+
+        // Count the number of lines in the file
+        int numLines = countLines(fd);
+
+        // Generate a random start line
+        int startLine = (rand() % (numLines - 2)) + 2;
+
+        for (int j = 0; j < numLines - 1; j++) {
+            int line = (startLine + j) % (numLines - 1) + 2;
+
+            if (getTermFromLine(fd, line, &t) == -1) {
+                printf("Error getting term from line\n");
+            }
+
+            // Checks that the term has the letter needed and enough space
+            int tleft = 0;
+            int tright;
+            for (int k = 0; k < strlen(t.word); k++) {
+                tleft++;
+                if (t.word[k] == have) {
+                    tright = strlen(t.word) - tleft;
+
+                    if (tleft <= left && tright <= right) {
+                        intersectionIndex = &tleft;
+                        start->row = coordinate.row - tleft;
+                        start->column = coordinate.column - tleft;
+                        close(fd);
+                        return t;
+                    }
+                }
+            }
+        }
+
+        close(fd);
+    }
+    return t;
 }

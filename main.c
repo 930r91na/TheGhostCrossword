@@ -21,6 +21,7 @@
 char crosswordBoardWithAnswers[BOARD_SIZE][BOARD_SIZE];
 termInBoard termsInBoard[NUMBER_OF_TERMS];
 termInBoard termToAppear;
+int termToReplaceIndex;
 char **historyOfWords;
 int historyOfWordsIndex = 0;
 
@@ -28,19 +29,18 @@ int historyOfWordsIndex = 0;
 pthread_t threads[NUM_THREADS];
 pthread_mutex_t lock;
 pthread_cond_t work_cond;
-pthread_mutex_t getRandomTerm_lock;
 bool keep_working = true;
 bool work_available = false;
 
 // Threads to get termToAppear
 pthread_t termToAppearThread;
 
+// Thread to check winning condition
+pthread_t winConditionTread;
+
 // Clock
 pthread_t clockThread;
 int clockTime = 0;
-
-
-void findAllIntersections(pair **ptr, int *pInt, termInBoard param);
 
 void initializeTermsInBoard() {
     // Initialize empty board with '*'
@@ -54,7 +54,7 @@ void initializeTermsInBoard() {
     termInBoard firstTermInBoard;
     firstTermInBoard.term = getRandomTerm(9);
     // Random start position
-    firstTermInBoard.starts.row = 1;
+    firstTermInBoard.starts.row = 2;
     firstTermInBoard.starts.column = 1;
     firstTermInBoard.isHorizontal = true;
     firstTermInBoard.isKnown = false;
@@ -73,31 +73,6 @@ void initializeTermsInBoard() {
     }
 
     stop_thread_pool();  // Stop the thread pool when done
-}
-
-void termChangeHandler(int signal) {
-    printf("Signal received: %d\n", signal);
-    // Get random term index between 0 and 11
-    // TODO: Change this to get
-    int indexTermToReplace = rand() % 12;
-    while (termsInBoard[indexTermToReplace].isKnown) {
-        indexTermToReplace = rand() % 12;
-    }
-
-    printf("Term to replace: %d\n", indexTermToReplace);
-    //replaceTerm(termsInBoard[indexTermToReplace]);
-}
-
-_Noreturn void *gameClock(void *arg) {
-    while (true) {
-        sleep(1);
-        clockTime++;
-
-        if (clockTime % WORD_DISAPPEAR_TIME == 0) {
-            printf("TicToc TicToc in 15 seconds! A word will be replaced.\n");
-            alarm(15);
-        }
-    }
 }
 
 void initCrosswordBoard() {
@@ -139,6 +114,53 @@ void initCrosswordBoard() {
     printFormattedBoard(displayBoard);
 }
 
+void termChangeHandler(int signal) {
+    if (termToAppear.term.word != NULL) {
+        printf("TicToc TicToc! Word %d replaced!\n", termToReplaceIndex);
+        printf("%s was replaced by %s\n", termsInBoard[termToReplaceIndex].term.word, termToAppear.term.word);
+        printf("New descriotioon is %s\n", termToAppear.term.description);
+        termsInBoard[termToReplaceIndex] = termToAppear;
+        initCrosswordBoard();
+        printTermsHints();
+
+        termToAppear.term.word = NULL;
+        clockTime = 0;
+    } else {
+        printf("Ready to replace word was not ready :(!\n");
+    }
+}
+
+_Noreturn void *gameClock(void *arg) {
+    while (true) {
+        sleep(1);
+        clockTime++;
+
+        if (clockTime % WORD_DISAPPEAR_TIME == 0) {
+            printf("TicToc TicToc in 15 seconds! A word will be replaced.\n");
+            alarm(15);
+        }
+    }
+}
+void *checkWinCondition(void*args){
+    int knownWords = 0;
+    while (true) {
+        for (int i = 0; i < NUMBER_OF_TERMS; i++) {
+            if (termsInBoard[i].isKnown) {
+                knownWords++;
+            }
+        }
+
+        if (knownWords == NUMBER_OF_TERMS) {
+            printf("Congratulations! You have completed the crossword!\n");
+            exit(0);
+        }
+
+        knownWords = 0;
+    }
+}
+
+
+
 int main(void) {
     srand(time(NULL));
     signal(SIGALRM, termChangeHandler);
@@ -163,6 +185,14 @@ int main(void) {
 
     // Init game clock
     pthread_create(&clockThread, NULL, gameClock, NULL);
+
+    // Init generator of termToAppear
+    pthread_create(&termToAppearThread, NULL, termToAppearGenerator, NULL);
+
+    // Check winning condition
+    pthread_create(&winConditionTread, NULL, checkWinCondition, NULL);
+
+
     // Main Game loop
     while (true) {
         initCrosswordBoard();

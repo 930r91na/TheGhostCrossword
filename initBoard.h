@@ -5,25 +5,7 @@
 
 #include "fileUtils.h"
 #include "parameters.h"
-
-typedef struct {
-    int first;
-    int second;
-} pair;
-
-typedef struct {
-    int row;
-    int column;
-} coordinate;
-
-typedef struct {
-    struct term term;
-    bool isHorizontal;
-    coordinate starts;
-    bool isKnown;
-    int index;
-    int intersection;
-} termInBoard;
+#include "initBoard.h"
 
 // Function prototypes
 
